@@ -10,5 +10,5 @@ build_docker_image:
         DOCKER_TLS_CERTDIR: "/certs"
         DOCKER_IMAGE_NAME: "testdeployment"
     script:
-        - docker build --pull -t "$DOCER_IMAGE_NAME" .
-        - docker run "$DOCKER_IMAGE_NAME"
+        - docker build --pull -t "$testdeployment" .
+        - docker run "$testdeployment"
