@@ -1,14 +1,14 @@
 stages:
-    - build
+  - build
 
 build_docker_image:
-    stage: build
-    image: docker:26.1.4-cli
-    services:
-        - docker:dind
-    variables:
-        DOCKER_TLS_CERTDIR: "/certs"
-        DOCKER_IMAGE_NAME: "testdeployment"
-    script:
-        - docker build --pull -t "$testdeployment" .
-        - docker run "$testdeployment"
+  stage: build
+  image: docker:26.1.4-cli
+  services:
+    - docker:dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_IMAGE_NAME: "testdeployment"
+  script:
+    - docker build --pull -t "$DOCKER_IMAGE_NAME" .
+    - docker run "$DOCKER_IMAGE_NAME"
