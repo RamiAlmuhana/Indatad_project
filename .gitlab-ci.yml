@@ -8,7 +8,8 @@ build_docker_image:
     - docker:dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-    DOCKER_IMAGE_NAME: "testdeployment"
+    DOCKER_IMAGE_NAME: "ramialmuhana/alpine:latest"
   script:
-    - docker build --pull -t "$DOCKER_IMAGE_NAME" .
-    - docker run "$DOCKER_IMAGE_NAME"
+    - docker login -u "$docker_username" -p "$docker_wachtwoord"
+    - docker build --pull -t "ramialmuhana/alpine:latest" .
+    - docker push "ramialmuhana/alpine:latest"
