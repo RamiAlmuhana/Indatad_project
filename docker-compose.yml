@@ -1,3 +1,5 @@
 services:
   pipeline:
     image: ramialmuhana/alpine:latest
+    volumes:
+      - /data/video:/data/video:ro
