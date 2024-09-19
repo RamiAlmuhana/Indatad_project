@@ -1,0 +1,3 @@
+services:
+  pipeline:
+    image: ramialmuhana/alpine:latest
