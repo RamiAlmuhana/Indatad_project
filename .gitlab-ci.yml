@@ -1,0 +1,15 @@
+stages:
+  - build
+
+build_docker_image:
+  stage: build
+  image: docker:26.1.4-cli
+  services:
+    - docker:dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_IMAGE_NAME: "ramialmuhana/alpine:latest"
+  script:
+    - docker login -u "$docker_username" -p "$docker_wachtwoord"
+    - docker build --pull -t "ramialmuhana/alpine:latest" .
+    - docker push "ramialmuhana/alpine:latest"
