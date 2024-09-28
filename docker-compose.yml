@@ -6,12 +6,5 @@ services:
     command: python main.py
     env_file:
       - .env
-#    depends_on:
-#      - connection_db
     volumes:
       - /data/video:/data/video:ro
-
-#  connection_db:
-#    image: ramialmuhana/alpine:latest
-#    container_name: connection_db
-#    command: ["sh", "-c", "while ! curl -s http://$DB_HOST:$DB_PORT/; do sleep 2; done"]
