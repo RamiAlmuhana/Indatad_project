@@ -110,14 +110,19 @@ def create_tables(conn):
             print("date_dim table filled with data.")
 
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS deploy_dim (
+                deploy_id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS video_dim (
                 video_id VARCHAR(11) PRIMARY KEY,
                 title VARCHAR(255),
                 published_date TIMESTAMP,
-                category_id INTEGER REFERENCES category_dim(CategoryID),
                 tags TEXT,
                 duration VARCHAR(20),
-                date_id INTEGER REFERENCES date_dim(date_id),
                 sentiment_rating INTEGER,
                 transcript TEXT
             );
@@ -128,6 +133,8 @@ def create_tables(conn):
                 video_statistics_id SERIAL PRIMARY KEY,
                 date_id INTEGER REFERENCES date_dim(date_id),
                 video_id VARCHAR(11) REFERENCES video_dim(video_id),
+                category_id INTEGER REFERENCES category_dim(CategoryID),
+                deploy_id INTEGER REFERENCES deploy_dim(deploy_id),
                 total_likes INTEGER,
                 previous_total_likes INTEGER,
                 total_views INTEGER,
@@ -144,27 +151,6 @@ def create_tables(conn):
     except Exception as e:
         conn.rollback()
         print(f"An error occurred while creating or filling tables: {e}")
-
-
-def create_deploy_table(conn):
-    try:
-        cur = conn.cursor()
-
-        cur.execute("SET TIME ZONE 'Europe/Amsterdam';")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS deploy_dim (
-                deploy_id SERIAL PRIMARY KEY,
-                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-
-        conn.commit()
-        cur.close()
-        print("deploy table created successfully.")
-    except Exception as e:
-        conn.rollback()
-        print(f"An error occurred while creating the deploy table: {e}")
 
 
 def insert_deploy_entry(conn):
@@ -230,6 +216,7 @@ def fetch_youtube_metadata(api_key, video_ids):
 
 
 
+
 def fetch_youtube_transcript(video_id):
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
@@ -271,14 +258,9 @@ def get_previous_statistics(conn, video_id):
     cur.close()
     return previous_data if previous_data else (0, 0, 0)
 
-def insert_or_update_video_dim(conn, video_id, title, published_at, category_id, transcript, sentiment_rating, tags, duration):
+def insert_or_update_video_dim(conn, video_id, title, published_at, transcript, sentiment_rating, tags, duration):
     try:
         published_date = datetime.strptime(published_at, "%Y-%m-%dT%H:%M:%SZ")
-        date_id = find_date_id(conn, published_date.year, published_date.month, published_date.day)
-
-        if date_id is None:
-            print(f"Date_id for published date {published_date} not found in date_dim table.")
-            return
 
         cur = conn.cursor()
 
@@ -290,14 +272,14 @@ def insert_or_update_video_dim(conn, video_id, title, published_at, category_id,
         if result:
             cur.execute("""
                 UPDATE Video_dim
-                SET title = %s, published_date = %s, category_id = %s, date_id = %s, transcript = %s, sentiment_rating = %s, tags = %s, duration = %s
+                SET title = %s, published_date = %s, transcript = %s, sentiment_rating = %s, tags = %s, duration = %s
                 WHERE video_id = %s
-            """, (title, published_date, category_id, date_id, transcript, sentiment_rating, tags, duration, video_id))
+            """, (title, published_date, transcript, sentiment_rating, tags, duration, video_id))
         else:
             cur.execute("""
-                INSERT INTO Video_dim (video_id, title, published_date, category_id, date_id, transcript, sentiment_rating, tags, duration)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (video_id, title, published_date, category_id, date_id, transcript, sentiment_rating, tags, duration))
+                INSERT INTO Video_dim (video_id, title, published_date, transcript, sentiment_rating, tags, duration)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (video_id, title, published_date, transcript, sentiment_rating, tags, duration))
 
         conn.commit()
         cur.close()
@@ -310,35 +292,32 @@ def insert_or_update_video_dim(conn, video_id, title, published_at, category_id,
 
 
 
-def insert_or_update_video_statistics_fact(conn, video_id, likes, views, comments):
+
+def insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_id, likes, views, comments):
     try:
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT date_id FROM Video_dim WHERE video_id = %s
+            SELECT published_date FROM Video_dim WHERE video_id = %s
         """, (video_id,))
         result = cur.fetchone()
 
         if result:
-            date_id = result[0]
+            published_date = result[0]
+            date_id = find_date_id(conn, published_date.year, published_date.month, published_date.day)
         else:
-            print(f"No date_id found for video_id {video_id} in Video_dim.")
+            print(f"No published_date found for video_id {video_id} in Video_dim.")
             return
 
-        likes = likes if likes is not None else 0
-        views = views if views is not None else 0
-        comments = comments if comments is not None else 0
+        likes = int(likes) if likes is not None else 0
+        views = int(views) if views is not None else 0
+        comments = int(comments) if comments is not None else 0
 
         previous_views, previous_likes, previous_comments = get_previous_statistics(conn, video_id)
 
-        previous_views = previous_views if previous_views is not None else 0
-        previous_likes = previous_likes if previous_likes is not None else 0
-        previous_comments = previous_comments if previous_comments is not None else 0
-
-        view_difference = views - previous_views
-        like_difference = likes - previous_likes
-        comment_difference = comments - previous_comments
-
+        previous_views = int(previous_views) if previous_views is not None else 0
+        previous_likes = int(previous_likes) if previous_likes is not None else 0
+        previous_comments = int(previous_comments) if previous_comments is not None else 0
 
         cur.execute("""
             SELECT video_statistics_id FROM VideoStatistics_fact WHERE video_id = %s
@@ -348,16 +327,16 @@ def insert_or_update_video_statistics_fact(conn, video_id, likes, views, comment
         if existing_record:
             cur.execute("""
                 UPDATE VideoStatistics_fact
-                SET date_id = %s, total_likes = %s, total_views = %s, total_comments = %s,
+                SET date_id = %s, category_id = %s, deploy_id = %s, total_likes = %s, total_views = %s, total_comments = %s,
                     previous_total_likes = %s, previous_total_views = %s, previous_total_comments = %s
                 WHERE video_statistics_id = %s
-            """, (date_id, likes, views, comments, previous_likes, previous_views, previous_comments, existing_record[0]))
+            """, (date_id, category_id, deploy_id, likes, views, comments, previous_likes, previous_views, previous_comments, existing_record[0]))
         else:
             cur.execute("""
-                INSERT INTO VideoStatistics_fact (date_id, video_id, total_likes, total_views, total_comments,
+                INSERT INTO VideoStatistics_fact (date_id, video_id, category_id, deploy_id, total_likes, total_views, total_comments,
                                                   previous_total_likes, previous_total_views, previous_total_comments)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (date_id, video_id, likes, views, comments, previous_likes, previous_views, previous_comments))
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (date_id, video_id, category_id, deploy_id, likes, views, comments, previous_likes, previous_views, previous_comments))
 
         conn.commit()
         cur.close()
@@ -376,7 +355,7 @@ conn = psycopg2.connect(
 )
 
 create_tables(conn)
-create_deploy_table(conn)
+
 
 insert_deploy_entry(conn)
 
@@ -396,8 +375,16 @@ for video_id, data in youtube_metadata.items():
     tags = ", ".join(data.get("tags", []))
     duration = data.get("duration", "N/A")
 
-    insert_or_update_video_dim(conn, video_id, data["title"], data["published_at"], category_id, transcript, sentiment_rating, tags, duration)
-    insert_or_update_video_statistics_fact(conn, video_id, data["likes"], data["views"], data["comments"])
+    insert_or_update_video_dim(conn, video_id, data["title"], data["published_at"], transcript, sentiment_rating, tags, duration)
+
+    cur = conn.cursor()
+    cur.execute("SELECT MAX(deploy_id) FROM deploy_dim;")
+    deploy_id = cur.fetchone()[0]
+
+    insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_id, data["likes"], data["views"], data["comments"])
+
+
+
 
 
 conn.close()
