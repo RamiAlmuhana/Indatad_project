@@ -141,7 +141,9 @@ def create_tables(conn):
                 previous_total_views INTEGER,
                 total_comments INTEGER,
                 previous_total_comments INTEGER,
-                popularity_score INTEGER
+                popularity_score INTEGER,
+                previous_week_views INTEGER DEFAULT 0,
+                previous_week_likes INTEGER DEFAULT 0
             );
         """)
 
@@ -304,20 +306,24 @@ def insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_i
 
         if result:
             published_date = result[0]
-            date_id = find_date_id(conn, published_date.year, published_date.month, published_date.day)
+            cur.execute("""
+                SELECT date_id FROM date_dim 
+                WHERE year = %s AND month = %s AND day = %s
+            """, (published_date.year, published_date.month, published_date.day))
+            date_id = cur.fetchone()[0]
         else:
             print(f"No published_date found for video_id {video_id} in Video_dim.")
             return
 
-        likes = int(likes) if likes is not None else 0
-        views = int(views) if views is not None else 0
-        comments = int(comments) if comments is not None else 0
+        likes = likes if likes is not None else 0
+        views = views if views is not None else 0
+        comments = comments if comments is not None else 0
 
         previous_views, previous_likes, previous_comments = get_previous_statistics(conn, video_id)
 
-        previous_views = int(previous_views) if previous_views is not None else 0
-        previous_likes = int(previous_likes) if previous_likes is not None else 0
-        previous_comments = int(previous_comments) if previous_comments is not None else 0
+        previous_views = previous_views if previous_views is not None else 0
+        previous_likes = previous_likes if previous_likes is not None else 0
+        previous_comments = previous_comments if previous_comments is not None else 0
 
         cur.execute("""
             SELECT video_statistics_id FROM VideoStatistics_fact WHERE video_id = %s
@@ -344,6 +350,8 @@ def insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_i
     except Exception as e:
         conn.rollback()
         print(f"Failed to insert or update video statistics fact: {e}")
+
+
 
 
 conn = psycopg2.connect(
