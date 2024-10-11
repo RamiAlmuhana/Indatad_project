@@ -3,7 +3,7 @@ import paramiko
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -294,6 +294,42 @@ def insert_or_update_video_dim(conn, video_id, title, published_at, transcript, 
 
 
 
+def update_previous_week_data(conn):
+    try:
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT MAX(timestamp) FROM deploy_dim
+        """)
+        last_deploy_timestamp = cur.fetchone()[0]
+
+        current_time = datetime.now(timezone.utc)
+
+        if last_deploy_timestamp:
+            time_diff = current_time - last_deploy_timestamp
+            if time_diff.days >= 7:
+                cur.execute("""
+                    UPDATE VideoStatistics_fact
+                    SET previous_week_views = total_views, 
+                        previous_week_likes = total_likes
+                    WHERE deploy_id = (SELECT MAX(deploy_id) FROM deploy_dim);
+                """)
+                print("Previous week data updated successfully.")
+            else:
+                print("Less than 7 days since the last deploy. No update needed.")
+        else:
+            print("No previous deploys found. Skipping update.")
+
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        conn.rollback()
+        print(f"Failed to update previous week data: {e}")
+
+
+
+
+
 
 def insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_id, likes, views, comments):
     try:
@@ -362,7 +398,11 @@ conn = psycopg2.connect(
     port=os.getenv("DB_PORT")
 )
 
+
 create_tables(conn)
+
+update_previous_week_data(conn)
+
 
 
 insert_deploy_entry(conn)
