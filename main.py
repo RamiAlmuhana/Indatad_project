@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 def list_remote_files(hostname, port, username, password, remote_directory):
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -135,12 +136,9 @@ def create_tables(conn):
                 video_id VARCHAR(11) REFERENCES video_dim(video_id),
                 category_id INTEGER REFERENCES category_dim(CategoryID),
                 deploy_id INTEGER REFERENCES deploy_dim(deploy_id),
-                total_likes INTEGER,
-                previous_total_likes INTEGER,
                 total_views INTEGER,
-                previous_total_views INTEGER,
+                total_likes INTEGER,
                 total_comments INTEGER,
-                previous_total_comments INTEGER,
                 popularity_score INTEGER,
                 previous_week_views INTEGER DEFAULT 0,
                 previous_week_likes INTEGER DEFAULT 0
@@ -217,8 +215,6 @@ def fetch_youtube_metadata(api_key, video_ids):
     return metadata
 
 
-
-
 def fetch_youtube_transcript(video_id):
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
@@ -247,18 +243,6 @@ def find_date_id(conn, year, month, day):
     except Exception as e:
         print(f"Failed to find date_id: {e}")
         return None
-
-def get_previous_statistics(conn, video_id):
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT total_views, total_likes, total_comments
-        FROM VideoStatistics_fact
-        WHERE video_id = %s
-        ORDER BY date_id DESC LIMIT 1;
-    """, (video_id,))
-    previous_data = cur.fetchone()
-    cur.close()
-    return previous_data if previous_data else (0, 0, 0)
 
 def insert_or_update_video_dim(conn, video_id, title, published_at, transcript, sentiment_rating, tags, duration):
     try:
@@ -291,47 +275,7 @@ def insert_or_update_video_dim(conn, video_id, title, published_at, transcript, 
         print(f"Failed to insert or update video_dim: {e}")
 
 
-
-
-
-def update_previous_week_data(conn):
-    try:
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT MAX(timestamp) FROM deploy_dim
-        """)
-        last_deploy_timestamp = cur.fetchone()[0]
-
-        current_time = datetime.now(timezone.utc)
-
-        if last_deploy_timestamp:
-            time_diff = current_time - last_deploy_timestamp
-            if time_diff.days >= 7:
-                cur.execute("""
-                    UPDATE VideoStatistics_fact
-                    SET previous_week_views = total_views, 
-                        previous_week_likes = total_likes
-                    WHERE deploy_id = (SELECT MAX(deploy_id) FROM deploy_dim);
-                """)
-                print("Previous week data updated successfully.")
-            else:
-                print("Less than 7 days since the last deploy. No update needed.")
-        else:
-            print("No previous deploys found. Skipping update.")
-
-        conn.commit()
-        cur.close()
-    except Exception as e:
-        conn.rollback()
-        print(f"Failed to update previous week data: {e}")
-
-
-
-
-
-
-def insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_id, likes, views, comments):
+def insert_video_statistics_fact(conn, video_id, category_id, deploy_id, likes, views, comments):
     try:
         cur = conn.cursor()
 
@@ -355,38 +299,73 @@ def insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_i
         views = views if views is not None else 0
         comments = comments if comments is not None else 0
 
-        previous_views, previous_likes, previous_comments = get_previous_statistics(conn, video_id)
-
-        previous_views = previous_views if previous_views is not None else 0
-        previous_likes = previous_likes if previous_likes is not None else 0
-        previous_comments = previous_comments if previous_comments is not None else 0
-
         cur.execute("""
-            SELECT video_statistics_id FROM VideoStatistics_fact WHERE video_id = %s
-        """, (video_id,))
-        existing_record = cur.fetchone()
-
-        if existing_record:
-            cur.execute("""
-                UPDATE VideoStatistics_fact
-                SET date_id = %s, category_id = %s, deploy_id = %s, total_likes = %s, total_views = %s, total_comments = %s,
-                    previous_total_likes = %s, previous_total_views = %s, previous_total_comments = %s
-                WHERE video_statistics_id = %s
-            """, (date_id, category_id, deploy_id, likes, views, comments, previous_likes, previous_views, previous_comments, existing_record[0]))
-        else:
-            cur.execute("""
-                INSERT INTO VideoStatistics_fact (date_id, video_id, category_id, deploy_id, total_likes, total_views, total_comments,
-                                                  previous_total_likes, previous_total_views, previous_total_comments)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (date_id, video_id, category_id, deploy_id, likes, views, comments, previous_likes, previous_views, previous_comments))
+            INSERT INTO VideoStatistics_fact (date_id, video_id, category_id, deploy_id, total_likes, total_views, total_comments)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (date_id, video_id, category_id, deploy_id, likes, views, comments))
 
         conn.commit()
         cur.close()
-        print(f"Video statistics fact for video_id {video_id} saved or updated successfully.")
+        print(f"Nieuwe video-statistieken toegevoegd voor video_id {video_id}.")
     except Exception as e:
         conn.rollback()
-        print(f"Failed to insert or update video statistics fact: {e}")
+        print(f"Fout bij het invoegen van video-statistieken: {e}")
 
+
+def cleanup_old_data(conn):
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM VideoStatistics_fact
+            WHERE deploy_id IN (
+                SELECT deploy_id FROM deploy_dim
+                WHERE timestamp < NOW() - INTERVAL '8 DAYS'
+            );
+        """)
+        conn.commit()
+        cur.close()
+        print("Oude videostatistieken succesvol verwijderd.")
+    except Exception as e:
+        conn.rollback()
+        print(f"Fout bij het opschonen van oude gegevens: {e}")
+
+
+def update_previous_week_data(conn, video_id):
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            WITH PreviousStats AS (
+                SELECT 
+                    VideoStatistics_fact.video_id,
+                    VideoStatistics_fact.deploy_id,
+                    VideoStatistics_fact.total_views,
+                    VideoStatistics_fact.total_likes,
+                    deploy_dim.timestamp AS deploy_timestamp,
+                    LAG(VideoStatistics_fact.total_views) OVER (PARTITION BY VideoStatistics_fact.video_id ORDER BY deploy_dim.timestamp) AS views_7_days_ago,
+                    LAG(VideoStatistics_fact.total_likes) OVER (PARTITION BY VideoStatistics_fact.video_id ORDER BY deploy_dim.timestamp) AS likes_7_days_ago
+                FROM VideoStatistics_fact
+                JOIN deploy_dim ON VideoStatistics_fact.deploy_id = deploy_dim.deploy_id
+                WHERE deploy_dim.timestamp <= NOW() - INTERVAL '6 DAYS'
+            )
+            UPDATE VideoStatistics_fact 
+            SET previous_week_views = COALESCE(views_7_days_ago, 0), 
+                previous_week_likes = COALESCE(likes_7_days_ago, 0)
+            FROM PreviousStats
+            WHERE VideoStatistics_fact.video_id = PreviousStats.video_id
+            AND VideoStatistics_fact.deploy_id = (
+                -- Selecteer de nieuwste deploy_id
+                SELECT MAX(deploy_id)
+                FROM deploy_dim
+                WHERE deploy_dim.timestamp > NOW() - INTERVAL '7 DAYS'
+            );
+        """, (video_id,))
+
+        conn.commit()
+        cur.close()
+        print(f"Vorige week statistieken bijgewerkt voor video_id {video_id}.")
+    except Exception as e:
+        conn.rollback()
+        print(f"Fout bij het updaten van vorige week statistieken: {e}")
 
 
 
@@ -400,11 +379,6 @@ conn = psycopg2.connect(
 
 
 create_tables(conn)
-
-update_previous_week_data(conn)
-
-
-
 insert_deploy_entry(conn)
 
 hostname = os.getenv("SSH_HOST")
@@ -423,16 +397,16 @@ for video_id, data in youtube_metadata.items():
     tags = ", ".join(data.get("tags", []))
     duration = data.get("duration", "N/A")
 
-    insert_or_update_video_dim(conn, video_id, data["title"], data["published_at"], transcript, sentiment_rating, tags, duration)
+    insert_or_update_video_dim(conn, video_id, data["title"], data["published_at"], transcript, sentiment_rating, tags,
+                               duration)
 
     cur = conn.cursor()
     cur.execute("SELECT MAX(deploy_id) FROM deploy_dim;")
     deploy_id = cur.fetchone()[0]
 
-    insert_or_update_video_statistics_fact(conn, video_id, category_id, deploy_id, data["likes"], data["views"], data["comments"])
+    insert_video_statistics_fact(conn, video_id, category_id, deploy_id, data["likes"], data["views"], data["comments"])
+    update_previous_week_data(conn, video_id)
 
-
-
-
+cleanup_old_data(conn)
 
 conn.close()
