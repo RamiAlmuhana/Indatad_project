@@ -21,7 +21,7 @@ COPY popularity.py .
 COPY kmeans_model.joblib .
 COPY scaler.joblib .
 COPY sentiment.py .
-COPY bow_vectorizer.py .
-COPY naive_bayes_model.py .
+COPY bow_vectorizer.pkl .
+COPY naive_bayes_model.pkl .
 
 CMD ["sh", "-c", "python3 main.py && python3 popularity.py && python3 sentiment.py"]
