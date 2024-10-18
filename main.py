@@ -122,7 +122,7 @@ def create_tables(conn):
                 published_date TIMESTAMP,
                 tags TEXT,
                 duration VARCHAR(20),
-                sentiment_rating INTEGER,
+                sentiment_rating VARCHAR(50),
                 transcript TEXT
             );
         """)
@@ -406,3 +406,4 @@ cleanup_old_data(conn)
 conn.close()
 
 subprocess.run(["python3", "popularity.py"])
+subprocess.run(["python3", "sentiment.py"])
