@@ -1,4 +1,6 @@
 import os
+import subprocess
+
 import paramiko
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
@@ -21,7 +23,7 @@ def list_remote_files(hostname, port, username, password, remote_directory):
         ssh.close()
         return remote_files
     except Exception as e:
-        print(f"An error occurred while accessing the remote server: {e}")
+        print(f"Fout bij toegang tot de externe server: {e}")
         return []
 
 
@@ -40,7 +42,6 @@ def create_tables(conn):
         count = cur.fetchone()[0]
 
         if count == 0:
-            print("Filling category_dim table with data...")
             cur.execute("""
                 INSERT INTO category_dim (CategoryID, CategoryName) VALUES
                 (1, 'Film & Animation'),
@@ -76,7 +77,6 @@ def create_tables(conn):
                 (43, 'Shows'),
                 (44, 'Trailers');
             """)
-            print("category_dim table filled with data.")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS date_dim (
@@ -91,7 +91,6 @@ def create_tables(conn):
         count = cur.fetchone()[0]
 
         if count == 0:
-            print("Filling date_dim table with data...")
             cur.execute("""
                 WITH RECURSIVE DateSeries AS (
                     SELECT CAST('2010-01-01' AS TIMESTAMP) AS date_value
@@ -108,7 +107,6 @@ def create_tables(conn):
                 FROM DateSeries
                 ORDER BY date_value;
             """)
-            print("date_dim table filled with data.")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS deploy_dim (
@@ -139,7 +137,7 @@ def create_tables(conn):
                 total_views INTEGER,
                 total_likes INTEGER,
                 total_comments INTEGER,
-                popularity_score INTEGER,
+                popularity_score VARCHAR(50),
                 previous_week_views INTEGER DEFAULT 0,
                 previous_week_likes INTEGER DEFAULT 0
             );
@@ -147,10 +145,10 @@ def create_tables(conn):
 
         conn.commit()
         cur.close()
-        print("All tables created and filled successfully.")
+        print("Tabellen succesvol aangemaakt en ingevuld.")
     except Exception as e:
         conn.rollback()
-        print(f"An error occurred while creating or filling tables: {e}")
+        print(f"Er is een fout bij het aanmaken of invullen van tabellen: {e}")
 
 
 def insert_deploy_entry(conn):
@@ -167,17 +165,17 @@ def insert_deploy_entry(conn):
 
         conn.commit()
         cur.close()
-        print(f"deploy entry created with deploy_id: {deploy_id}")
+        print(f"Nieuwe deploy invoer aangemaakt met de deploy_id: {deploy_id}")
     except Exception as e:
         conn.rollback()
-        print(f"Failed to insert deploy entry: {e}")
+        print(f"Kon geen deploy invoer toevoegen: {e}")
 
 
 def fetch_youtube_metadata(api_key, video_ids):
     metadata = {}
     for video_id in video_ids:
         if len(video_id) != 11:
-            print(f"Invalid video ID: {video_id}")
+            print(f"Ongeldige video-ID: {video_id}")
             continue
 
         url = f"https://www.googleapis.com/youtube/v3/videos?id={video_id}&part=snippet,statistics,contentDetails&key={api_key}"
@@ -208,9 +206,9 @@ def fetch_youtube_metadata(api_key, video_ids):
                     "comments": int(comments) if comments else None
                 }
             else:
-                print(f"No data found for video ID: {video_id}")
+                print(f"Geen gegevens gevonden voor {video_id}")
         else:
-            print(f"Failed to retrieve metadata for {video_id}. Status code: {response.status_code}")
+            print(f"Kon geen metadata ophalen voor {video_id}. Statuscode: {response.status_code}")
 
     return metadata
 
@@ -221,10 +219,10 @@ def fetch_youtube_transcript(video_id):
         full_transcript = " ".join([entry['text'] for entry in transcript])
         return full_transcript
     except (TranscriptsDisabled, NoTranscriptFound):
-        print(f"Transcripts are disabled or not available for video ID {video_id}.")
+        print(f"Transcripties zijn uitgeschakeld of niet beschikbaar voor video-ID {video_id}.")
         return None
     except Exception as e:
-        print(f"Failed to fetch transcript for video ID {video_id}: {e}")
+        print(f"Er is een fout bij het ophalen van de transcript voor video-ID {video_id}: {e}")
         return None
 
 
@@ -241,7 +239,7 @@ def find_date_id(conn, year, month, day):
         else:
             return None
     except Exception as e:
-        print(f"Failed to find date_id: {e}")
+        print(f"Kon date_id niet vinden: {e}")
         return None
 
 def insert_or_update_video_dim(conn, video_id, title, published_at, transcript, sentiment_rating, tags, duration):
@@ -269,10 +267,9 @@ def insert_or_update_video_dim(conn, video_id, title, published_at, transcript, 
 
         conn.commit()
         cur.close()
-        print(f"Video {video_id} processed and saved/updated successfully.")
     except Exception as e:
         conn.rollback()
-        print(f"Failed to insert or update video_dim: {e}")
+        print(f"Fout bij het toevoegen of bijwerken van video_dim: {e}")
 
 
 def insert_video_statistics_fact(conn, video_id, category_id, deploy_id, likes, views, comments):
@@ -292,7 +289,7 @@ def insert_video_statistics_fact(conn, video_id, category_id, deploy_id, likes, 
             """, (published_date.year, published_date.month, published_date.day))
             date_id = cur.fetchone()[0]
         else:
-            print(f"No published_date found for video_id {video_id} in Video_dim.")
+            print(f"Geen publish_date gevonden voor {video_id} in Video_dim.")
             return
 
         likes = likes if likes is not None else 0
@@ -306,10 +303,9 @@ def insert_video_statistics_fact(conn, video_id, category_id, deploy_id, likes, 
 
         conn.commit()
         cur.close()
-        print(f"Nieuwe video-statistieken toegevoegd voor video_id {video_id}.")
     except Exception as e:
         conn.rollback()
-        print(f"Fout bij het invoegen van video-statistieken: {e}")
+        print(f"Fout bij het toevoegen van video-statistieken: {e}")
 
 
 def cleanup_old_data(conn):
@@ -324,15 +320,16 @@ def cleanup_old_data(conn):
         """)
         conn.commit()
         cur.close()
-        print("Oude videostatistieken succesvol verwijderd.")
+        print("Videos ouder dan 7 dagen succesvol verwijderd.")
     except Exception as e:
         conn.rollback()
-        print(f"Fout bij het opschonen van oude gegevens: {e}")
+        print(f"Fout bij het verwijderen van videos ouder dan 7 dagen: {e}")
 
 
 def update_previous_week_data(conn, video_id):
     try:
         cur = conn.cursor()
+
         cur.execute("""
             WITH PreviousStats AS (
                 SELECT 
@@ -353,7 +350,6 @@ def update_previous_week_data(conn, video_id):
             FROM PreviousStats
             WHERE VideoStatistics_fact.video_id = PreviousStats.video_id
             AND VideoStatistics_fact.deploy_id = (
-                -- Selecteer de nieuwste deploy_id
                 SELECT MAX(deploy_id)
                 FROM deploy_dim
                 WHERE deploy_dim.timestamp > NOW() - INTERVAL '7 DAYS'
@@ -362,11 +358,10 @@ def update_previous_week_data(conn, video_id):
 
         conn.commit()
         cur.close()
-        print(f"Vorige week statistieken bijgewerkt voor video_id {video_id}.")
+        print(f"Succesvol bijgewerkt voor de video met {video_id}.")
     except Exception as e:
         conn.rollback()
-        print(f"Fout bij het updaten van vorige week statistieken: {e}")
-
+        print(f"Fout bij het updaten vorige week statistieken: {e}")
 
 
 conn = psycopg2.connect(
@@ -376,7 +371,6 @@ conn = psycopg2.connect(
     password=os.getenv("DB_PASSWORD"),
     port=os.getenv("DB_PORT")
 )
-
 
 create_tables(conn)
 insert_deploy_entry(conn)
@@ -410,3 +404,5 @@ for video_id, data in youtube_metadata.items():
 cleanup_old_data(conn)
 
 conn.close()
+
+subprocess.run(["python3", "popularity.py"])
