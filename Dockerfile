@@ -21,4 +21,4 @@ COPY popularity.py .
 COPY clustering/kmeans_model.joblib .
 COPY clustering/scaler.joblib .
 
-CMD ["sh", "-c", "python3 main.py"]
+CMD ["sh", "-c", "python3 main.py && python3 ander_script.py"]
