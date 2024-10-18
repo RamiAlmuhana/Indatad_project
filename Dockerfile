@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 COPY popularity.py .
-COPY clustering/kmeans_model.joblib .
-COPY clustering/scaler.joblib .
+COPY kmeans_model.joblib .
+COPY scaler.joblib .
 
 CMD ["sh", "-c", "python3 main.py && python3 popularity.py"]

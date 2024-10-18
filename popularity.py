@@ -66,8 +66,8 @@ def main():
     if not df.empty:
         df = preprocess_data(df)
 
-        kmeans_model = joblib.load('clustering/kmeans_model.joblib')
-        scaler = joblib.load('clustering/scaler.joblib')
+        kmeans_model = joblib.load('kmeans_model.joblib')
+        scaler = joblib.load('scaler.joblib')
 
         df = predict_popularity(df, scaler, kmeans_model)
 
