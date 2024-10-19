@@ -13,10 +13,12 @@ DB_PORT = os.getenv("DB_PORT")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
+
+
 def load_model_and_vectorizer():
-    naive_bayes_model = joblib.load('naive_bayes_model.pkl')
-    bow_vectorizer = joblib.load('bow_vectorizer.pkl')
-    return naive_bayes_model, bow_vectorizer
+    classificatie_model = joblib.load('classificatie_model.pkl')
+    Nlp_model = joblib.load('Nlp_model.pkl')
+    return classificatie_model, Nlp_model
 
 
 def get_video_data(engine):
@@ -28,12 +30,12 @@ def get_video_data(engine):
     return df
 
 
-def calculate_sentiment(df, naive_bayes_model, bow_vectorizer):
+def calculate_sentiment(df, classificatie_model, Nlp_model):
     df['transcript'] = df['transcript'].fillna('')
 
-    transcript_bow = bow_vectorizer.transform(df['transcript'].tolist())
+    transcript_bow = Nlp_model.transform(df['transcript'].tolist())
 
-    sentiment_predictions = naive_bayes_model.predict(transcript_bow)
+    sentiment_predictions = classificatie_model.predict(transcript_bow)
 
     df['sentiment_rating'] = sentiment_predictions
     df['sentiment_rating'] = df['sentiment_rating'].apply(lambda x: 'Positive' if x == 1 else 'Negative')
@@ -67,7 +69,7 @@ def update_sentiment_in_db(df):
 def main():
     engine = create_engine(f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 
-    naive_bayes_model, bow_vectorizer = load_model_and_vectorizer()
+    classificatie_model, Nlp_model = load_model_and_vectorizer()
 
     df = get_video_data(engine)
 
@@ -75,7 +77,7 @@ def main():
         print("Alle videos hebben al een sentiment_rating.")
         return
 
-    df = calculate_sentiment(df, naive_bayes_model, bow_vectorizer)
+    df = calculate_sentiment(df, classificatie_model, Nlp_model)
 
     update_sentiment_in_db(df)
 
