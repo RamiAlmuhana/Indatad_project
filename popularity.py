@@ -1,5 +1,4 @@
 import os
-
 import pandas as pd
 import psycopg2
 import joblib
@@ -9,16 +8,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
-def fetch_videos_without_popularity(engine):
+def fetch_all_videos(engine):
     query = """
     SELECT vsf.video_id, vsf.total_views, vsf.total_likes, vd.title, vd.published_date 
     FROM VideoStatistics_fact vsf
-    JOIN video_dim vd ON vsf.video_id = vd.video_id
-    WHERE vsf.popularity_score IS NULL;
+    JOIN video_dim vd ON vsf.video_id = vd.video_id;
     """
     return pd.read_sql(query, engine)
-
 
 def preprocess_data(df):
     df['likes_to_views'] = df['total_likes'].astype(float) / df['total_views'].astype(float)
@@ -29,7 +25,6 @@ def preprocess_data(df):
     df['published_Year'] = df['published_date'].dt.year
     return df
 
-
 def predict_popularity(df, scaler, kmeans_model):
     features = ['likes_to_views', 'title_length', 'days_since_published', 'published_Year']
     scaled_data = pd.DataFrame(scaler.transform(df[features]), columns=features)
@@ -37,7 +32,6 @@ def predict_popularity(df, scaler, kmeans_model):
     df['popularity_score'] = predictions
     df['popularity_score'] = df['popularity_score'].apply(lambda x: 'Popular' if x == 1 else 'Not Popular')
     return df
-
 
 def update_database_with_predictions(df, conn):
     cur = conn.cursor()
@@ -51,7 +45,6 @@ def update_database_with_predictions(df, conn):
     conn.commit()
     cur.close()
 
-
 def main():
     DB_HOST = os.getenv("DB_HOST")
     DB_PORT = os.getenv("DB_PORT")
@@ -61,32 +54,28 @@ def main():
 
     engine = create_engine(f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 
-    df = fetch_videos_without_popularity(engine)
+    df = fetch_all_videos(engine)
 
-    if not df.empty:
-        df = preprocess_data(df)
+    df = preprocess_data(df)
 
-        kmeans_model = joblib.load('kmeans_model.joblib')
-        scaler = joblib.load('scaler.joblib')
+    kmeans_model = joblib.load('kmeans_model.joblib')
+    scaler = joblib.load('scaler.joblib')
 
-        df = predict_popularity(df, scaler, kmeans_model)
+    df = predict_popularity(df, scaler, kmeans_model)
 
-        conn = psycopg2.connect(
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            host=DB_HOST,
-            port=DB_PORT
-        )
+    conn = psycopg2.connect(
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=DB_PORT
+    )
 
-        update_database_with_predictions(df, conn)
+    update_database_with_predictions(df, conn)
 
-        conn.close()
+    conn.close()
 
-        print("Popularity toegevoegd")
-    else:
-        print("Alle videos hebben 'popularity_score'")
-
+    print("Popularity toegevoegd aan alle video's")
 
 if __name__ == '__main__':
     main()
