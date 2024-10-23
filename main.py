@@ -387,7 +387,7 @@ youtube_metadata = fetch_youtube_metadata(api_key, file_names)
 for video_id, data in youtube_metadata.items():
     category_id = data.get("category_id")
     transcript = fetch_youtube_transcript(video_id)
-    sentiment_rating = 0
+    sentiment_rating = None
     tags = ", ".join(data.get("tags", []))
     duration = data.get("duration", "N/A")
 

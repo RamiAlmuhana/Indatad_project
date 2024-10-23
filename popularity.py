@@ -28,7 +28,7 @@ def preprocess_data(df):
 def predict_popularity(df, scaler, kmeans_model):
     features = ['likes_to_views', 'title_length', 'days_since_published', 'published_Year']
     scaled_data = pd.DataFrame(scaler.transform(df[features]), columns=features)
-    predictions = kmeans_model.predict(scaled_data)
+    predictions = kmeans_model.fit_predict(scaled_data)
     df['popularity_score'] = predictions
     df['popularity_score'] = df['popularity_score'].apply(lambda x: 'Popular' if x == 1 else 'Not Popular')
     return df
